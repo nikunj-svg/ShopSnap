@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ShopSnap - Visual Price Detector</title>
+  <!-- Google Fonts Outfit & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div id="app-container">
+    
+    <!-- Header -->
+    <header>
+      <div class="logo-container">
+        <svg class="logo-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/>
+          <circle cx="12" cy="13" r="3"/>
+        </svg>
+        <h1>ShopSnap</h1>
+      </div>
+      <div id="api-status-badge" class="header-status demo">
+        <span class="status-dot"></span>
+        <span id="api-status-text">Demo Mode</span>
+      </div>
+    </header>
+
+    <!-- Main Viewport -->
+    <main>
+      
+      <!-- View 1: Dashboard -->
+      <section id="view-dashboard" class="view active">
+        <div class="welcome-banner">
+          <h2>Welcome, Shopkeeper!</h2>
+          <p>Scan products to see prices instantly.</p>
+        </div>
+
+        <div class="stats-grid">
+          <div class="glass-card stat-card">
+            <div class="stat-val" id="stats-scans-count">0</div>
+            <div class="stat-label">Scans Today</div>
+          </div>
+          <div class="glass-card stat-card">
+            <div class="stat-val" id="stats-products-count">0</div>
+            <div class="stat-label">Total Products</div>
+          </div>
+        </div>
+
+        <div class="glass-card action-card">
+          <h4>Visual Scanner</h4>
+          <p>Ready to look up pricing? Launch the scanner, point the camera at any item, and click a picture.</p>
+          <button class="btn btn-primary" onclick="app.switchView('scanner')">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/>
+              <circle cx="12" cy="13" r="3"/>
+            </svg>
+            Start Scan
+          </button>
+        </div>
+
+        <div class="glass-card">
+          <div class="glass-card-header">
+            <h3>Recent Scans</h3>
+            <button class="btn btn-secondary" style="width: auto; padding: 4px 10px; font-size: 0.75rem;" onclick="app.clearHistory()">Clear</button>
+          </div>
+          <div class="history-list" id="dashboard-history-list">
+            <div class="empty-state">No recent scans. Snapped items will appear here!</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- View 2: Scanner (Full screen camera view) -->
+      <section id="view-scanner" class="view">
+        <div class="scanner-container">
+          
+          <!-- Camera Feed -->
+          <div class="camera-preview-wrapper">
+            <video id="camera-stream" autoplay playsinline muted></video>
+          </div>
+
+          <!-- Camera Fallback Screen (shows when WebRTC stream fails on HTTP) -->
+          <div id="camera-fallback-screen" class="camera-fallback-screen" style="display: none;">
+            <svg class="fallback-icon" xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+              <circle cx="12" cy="13" r="4"/>
+            </svg>
+            <div class="fallback-title">Native Camera Active</div>
+            <div class="fallback-desc">
+              Your browser restricts real-time video streams on insecure connections (http).
+              <br><br>
+              Tap the large button below to snap a picture using your mobile camera.
+            </div>
+          </div>
+
+          <!-- Camera Authorization Screen (prompt to ask for camera permission) -->
+          <div id="camera-auth-screen" class="camera-auth-screen" style="display: none;">
+            <svg class="fallback-icon" xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            <div class="fallback-title">Camera Access Required</div>
+            <div class="fallback-desc">
+              ShopSnap requires access to your camera to scan products and check their prices in real-time.
+            </div>
+            <button class="btn btn-primary fallback-btn" onclick="app.requestCameraPermission()">
+              Enable Live Scanner
+            </button>
+            <button class="btn btn-secondary fallback-btn" onclick="app.activateCameraFallback()" style="margin-top: 0;">
+              Use Native Photo Mode
+            </button>
+          </div>
+
+          <!-- Overlay Graphics -->
+          <div class="scanner-overlay">
+            
+            <div class="overlay-top">
+              <button class="close-scanner" onclick="app.switchView('dashboard')">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+              <div class="scanner-mode-tag" id="scanner-badge">Visual Mode</div>
+              <div style="width: 40px;"></div> <!-- Spacer -->
+            </div>
+
+            <div class="overlay-middle">
+              <div id="scanner-viewfinder" class="viewfinder active">
+                <span class="viewfinder-corner corner-tl"></span>
+                <span class="viewfinder-corner corner-tr"></span>
+                <span class="viewfinder-corner corner-bl"></span>
+                <span class="viewfinder-corner corner-br"></span>
+                <div class="scanner-line"></div>
+                <div class="scanner-hint">Align product in frame</div>
+              </div>
+            </div>
+
+            <div class="overlay-bottom">
+              <!-- Switch Camera Button -->
+              <button class="scanner-action-btn" id="camera-switch-btn" onclick="app.toggleCameraFacing()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                </svg>
+              </button>
+
+              <!-- Snap Photo Trigger -->
+              <div class="snap-trigger" onclick="app.captureAndAnalyze()">
+                <div class="snap-trigger-inner"></div>
+              </div>
+
+              <!-- Upload File Backup -->
+              <button class="scanner-action-btn" onclick="document.getElementById('image-upload-input').click()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                </svg>
+              </button>
+            </div>
+            
+          </div>
+          
+          <!-- Hidden File Input for desktop testing and native camera capture -->
+          <input type="file" id="image-upload-input" accept="image/*" capture="environment" onchange="app.handleImageUpload(event)">
+
+          <!-- Loading Overlay -->
+          <div id="scanner-loading" class="loading-overlay">
+            <div class="spinner"></div>
+            <div>
+              <div class="loading-text" id="scanner-loading-text">Analyzing Product...</div>
+              <div class="loading-subtext">Checking local inventory & AI matching</div>
+            </div>
+          </div>
+
+          <!-- Bottom Drawer Results -->
+          <div id="scanner-result-drawer" class="result-drawer">
+            <div class="drawer-handle"></div>
+            
+            <div class="result-header">
+              <div class="result-title-group">
+                <div class="result-category" id="result-prod-category">Beverage</div>
+                <h2 id="result-prod-name">Coca Cola</h2>
+              </div>
+              <div class="result-confidence" id="result-prod-confidence">95% Match</div>
+            </div>
+            
+            <p class="result-desc" id="result-prod-desc">Carbonated sweet soft drink.</p>
+            
+            <div class="variant-pricing-box">
+              <div class="variant-pricing-header">
+                <span>Size / Variant</span>
+                <span>Price</span>
+              </div>
+              <div class="variant-list" id="result-variants-list">
+                <!-- Dynamic sizes rows go here -->
+              </div>
+            </div>
+
+            <div class="result-actions">
+              <button class="btn btn-secondary" onclick="app.resetScanner()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                </svg>
+                Scan Again
+              </button>
+              <button class="btn btn-primary" onclick="app.confirmScanResult()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+                Done
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- View 3: Inventory -->
+      <section id="view-inventory" class="view">
+        <div class="glass-card-header" style="margin-bottom: 0;">
+          <h2>Shop Inventory</h2>
+        </div>
+
+        <div class="inventory-controls">
+          <div class="search-box">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input type="text" id="inventory-search" class="search-input" placeholder="Search product name..." oninput="app.renderInventory()">
+          </div>
+          <button class="btn btn-primary btn-icon-only" onclick="app.openAddProductModal()" title="Add Product">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="product-list" id="inventory-products-list">
+          <!-- Inventory items populate here -->
+        </div>
+
+        <div class="data-sync-row">
+          <button class="btn btn-secondary" onclick="app.exportToCSV()">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 3v12"/>
+            </svg>
+            Export CSV
+          </button>
+          <button class="btn btn-secondary" onclick="document.getElementById('csv-file-input').click()">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+            </svg>
+            Import CSV
+          </button>
+        </div>
+        <input type="file" id="csv-file-input" accept=".csv" style="display: none;" onchange="app.importFromCSV(event)">
+      </section>
+
+      <!-- View 4: Settings -->
+      <section id="view-settings" class="view">
+        <div class="glass-card-header" style="margin-bottom: 0;">
+          <h2>Settings</h2>
+        </div>
+
+        <div class="glass-card settings-section">
+          <h3>Gemini AI Credentials</h3>
+          <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 6px;">
+            ShopSnap uses the Gemini API client-side to recognize items from your camera photos.
+          </p>
+          <div class="form-group">
+            <label for="settings-api-key">Gemini API Key</label>
+            <input type="password" id="settings-api-key" class="form-control" placeholder="AIzaSy...">
+          </div>
+          <div style="display: flex; gap: 10px;">
+            <button class="btn btn-primary" onclick="app.saveApiKey()">Save Key</button>
+            <button class="btn btn-secondary" onclick="app.clearApiKey()" style="width: auto;">Clear</button>
+          </div>
+        </div>
+
+        <div class="glass-card api-instructions-card">
+          <h4>How to get a free API Key:</h4>
+          <ol class="instructions-list">
+            <li>Go to <span class="api-link" onclick="window.open('https://aistudio.google.com/', '_blank')">Google AI Studio</span>.</li>
+            <li>Sign in with your Google account.</li>
+            <li>Click <strong>"Get API key"</strong> at the top left.</li>
+            <li>Create a key and paste it into the field above.</li>
+            <li>Ensure you save the key. It resides only on your device.</li>
+          </ol>
+        </div>
+
+        <div class="glass-card settings-card">
+          <h3>General Configuration</h3>
+          
+          <div class="toggle-setting-row">
+            <div class="toggle-label-group">
+              <div class="toggle-title">Demo Simulation Mode</div>
+              <div class="toggle-desc">Simulates visual scan if API key is not set</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="settings-demo-mode" onchange="app.toggleDemoMode(this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="toggle-setting-row">
+            <div class="toggle-label-group">
+              <div class="toggle-title">Sound Effects</div>
+              <div class="toggle-desc">Play a chime when scanner recognizes an item</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="settings-sound-effects" checked onchange="app.toggleSound(this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="glass-card" style="border-color: rgba(244, 63, 94, 0.25);">
+          <h3 style="color: var(--accent-rose);">Danger Zone</h3>
+          <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 14px;">
+            This deletes all database products and scan logs from this browser's local memory.
+          </p>
+          <button class="btn btn-rose" onclick="app.resetFactoryData()">Reset ShopSnap Memory</button>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Bottom Navigation Bar -->
+    <nav class="bottom-nav">
+      <div id="nav-tab-dashboard" class="nav-tab active" onclick="app.switchView('dashboard')">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+        <span>Home</span>
+      </div>
+
+      <div id="nav-tab-inventory" class="nav-tab" onclick="app.switchView('inventory')">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
+        <span>Inventory</span>
+      </div>
+
+      <div class="nav-tab-scan" onclick="app.switchView('scanner')" title="Open Camera Scanner">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/>
+          <circle cx="12" cy="13" r="3"/>
+        </svg>
+      </div>
+
+      <div class="nav-tab" style="pointer-events: none; opacity: 0; width: 0;"></div> <!-- Layout alignment spacer -->
+
+      <div id="nav-tab-settings" class="nav-tab" onclick="app.switchView('settings')">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        <span>Settings</span>
+      </div>
+    </nav>
+
+    <!-- Modal: Add / Edit Product -->
+    <div id="modal-product" class="modal-overlay" onclick="app.closeProductModal(event)">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 class="modal-title" id="product-modal-title">Add New Product</h3>
+          <button class="modal-close" onclick="app.closeProductModal(event, true)">&times;</button>
+        </div>
+        
+        <form id="product-form" onsubmit="app.saveProductForm(event)">
+          <input type="hidden" id="form-product-id">
+          
+          <div class="form-group" style="margin-bottom: 12px;">
+            <label for="form-product-name">Product Name *</label>
+            <input type="text" id="form-product-name" class="form-control" required placeholder="e.g. Coca Cola Can">
+          </div>
+
+          <div class="form-group" style="margin-bottom: 12px;">
+            <label for="form-product-category">Category</label>
+            <input type="text" id="form-product-category" class="form-control" placeholder="e.g. Beverages" list="categories-list">
+            <datalist id="categories-list">
+              <option value="Beverages">
+              <option value="Snacks">
+              <option value="Grocery">
+              <option value="Toiletries">
+              <option value="Stationery">
+            </datalist>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 12px;">
+            <label for="form-product-desc">Description</label>
+            <textarea id="form-product-desc" class="form-control" rows="2" placeholder="Brief visual details (color, shapes) to help Gemini match it..."></textarea>
+          </div>
+
+          <!-- Reference Image upload widget -->
+          <div class="form-group" style="margin-bottom: 16px;">
+            <label>Reference Photo</label>
+            <div class="image-selector-widget" id="reference-image-widget" onclick="document.getElementById('form-product-image-file').click()">
+              <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                <circle cx="12" cy="13" r="4"/>
+              </svg>
+              <div id="image-widget-text">Upload or Take Product Photo</div>
+              <img id="form-product-image-preview" style="display: none;">
+            </div>
+            <input type="file" id="form-product-image-file" accept="image/*" style="display: none;" onchange="app.handleProductImageSelect(event)">
+            <!-- Hidden input to store base64 string -->
+            <input type="hidden" id="form-product-image-base64">
+          </div>
+
+          <!-- Variants list (Sizes and Prices) -->
+          <div class="form-group" style="margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <label>Sizes & Prices *</label>
+              <button type="button" class="btn btn-secondary" style="width: auto; padding: 4px 10px; font-size: 0.75rem;" onclick="app.addVariantRow()">+ Add Size</button>
+            </div>
+            
+            <div class="variants-builder-list" id="form-variants-builder">
+              <!-- Variant input rows go here -->
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 10px; margin-top: 10px;">
+            <button type="button" class="btn btn-secondary" onclick="app.closeProductModal(event, true)">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Product</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
