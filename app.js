@@ -66,6 +66,15 @@ class ShopSnapApp {
     
     this.currentScanResult = null; // Hold current identified item
     this.webrtcActive = true;
+    
+    // Sync & Auth variables
+    this.shopId = "";
+    this.shopPassword = "";
+    this.shopName = "Shopkeeper";
+    this.isLoggedIn = false;
+    this.lastSyncTime = 0;
+    this.syncIntervalId = null;
+    this.hasLocalChanges = false;
   }
 
   init() {
@@ -80,6 +89,17 @@ class ShopSnapApp {
     
     // Check if API key is set
     this.updateApiStatusUI();
+    
+    // Auth route check
+    if (this.isLoggedIn) {
+      document.getElementById("dash-shop-name").textContent = `Welcome, ${this.shopName}!`;
+      document.getElementById("bottom-navigation-bar").style.display = "flex";
+      this.switchView("dashboard");
+      this.startSyncPolling();
+    } else {
+      document.getElementById("bottom-navigation-bar").style.display = "none";
+      this.switchView("auth");
+    }
   }
 
   // --- SETTINGS & LOCAL STORAGE ---
@@ -88,6 +108,13 @@ class ShopSnapApp {
     this.demoMode = localStorage.getItem("ss_demo_mode") !== "false";
     this.soundEnabled = localStorage.getItem("ss_sound_enabled") !== "false";
     this.scannedTodayCount = parseInt(localStorage.getItem("ss_scans_today") || "0");
+    
+    // Load auth variables
+    this.shopId = localStorage.getItem("ss_shop_id") || "";
+    this.shopPassword = localStorage.getItem("ss_shop_password") || "";
+    this.shopName = localStorage.getItem("ss_shop_name") || "Shopkeeper";
+    this.isLoggedIn = localStorage.getItem("ss_is_logged_in") === "true";
+    this.lastSyncTime = parseInt(localStorage.getItem("ss_last_sync_time") || "0");
     
     // Set settings UI values
     document.getElementById("settings-api-key").value = this.apiKey;
@@ -108,6 +135,14 @@ class ShopSnapApp {
   saveInventory() {
     localStorage.setItem("ss_inventory", JSON.stringify(this.inventory));
     this.updateDashboardStats();
+    
+    // Push updates if logged in
+    if (this.isLoggedIn) {
+      this.hasLocalChanges = true;
+      this.lastSyncTime = Date.now();
+      localStorage.setItem("ss_last_sync_time", this.lastSyncTime);
+      this.syncWithServer(true);
+    }
   }
 
   loadHistory() {
@@ -121,6 +156,14 @@ class ShopSnapApp {
 
   saveHistory() {
     localStorage.setItem("ss_history", JSON.stringify(this.history));
+    
+    // Push updates if logged in
+    if (this.isLoggedIn) {
+      this.hasLocalChanges = true;
+      this.lastSyncTime = Date.now();
+      localStorage.setItem("ss_last_sync_time", this.lastSyncTime);
+      this.syncWithServer(true);
+    }
   }
 
   updateDashboardStats() {
@@ -1275,6 +1318,292 @@ You MUST reply with ONLY a raw JSON object matching this schema (do NOT wrap in 
       if (deleteBtn) deleteBtn.style.display = "none";
       
       alert("Product deleted.");
+    }
+  }
+
+  // --- AUTHENTICATION & SERVER SYNC ---
+  switchAuthTab(mode) {
+    const loginTab = document.getElementById("auth-tab-login");
+    const registerTab = document.getElementById("auth-tab-register");
+    const loginForm = document.getElementById("auth-login-form");
+    const registerForm = document.getElementById("auth-register-form");
+
+    if (mode === "login") {
+      loginTab.style.fontWeight = "700";
+      loginTab.style.borderBottom = "2px solid var(--accent-cyan)";
+      loginTab.style.color = "var(--text-primary)";
+      
+      registerTab.style.fontWeight = "500";
+      registerTab.style.borderBottom = "none";
+      registerTab.style.color = "var(--text-secondary)";
+      
+      loginForm.style.display = "block";
+      registerForm.style.display = "none";
+    } else {
+      registerTab.style.fontWeight = "700";
+      registerTab.style.borderBottom = "2px solid var(--accent-cyan)";
+      registerTab.style.color = "var(--text-primary)";
+      
+      loginTab.style.fontWeight = "500";
+      loginTab.style.borderBottom = "none";
+      loginTab.style.color = "var(--text-secondary)";
+      
+      registerForm.style.display = "block";
+      loginForm.style.display = "none";
+    }
+  }
+
+  async handleRegister(e) {
+    e.preventDefault();
+    const shopId = document.getElementById("register-shop-id").value.trim().toLowerCase();
+    const shopName = document.getElementById("register-shop-name").value.trim();
+    const password = document.getElementById("register-password").value;
+
+    if (!shopId || !shopName || !password) {
+      alert("Please fill in all fields.");
+      return;
+    }
+
+    this.showLoading("Registering Shop...");
+
+    try {
+      const response = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopId: shopId,
+          shopName: shopName,
+          password: password,
+          inventory: this.inventory
+        })
+      });
+
+      const data = await response.json();
+      this.hideLoading();
+
+      if (data.success) {
+        alert("Registration successful! Logging in...");
+        
+        // Save auth data locally
+        this.shopId = shopId;
+        this.shopPassword = password;
+        this.shopName = shopName;
+        this.isLoggedIn = true;
+        this.lastSyncTime = Date.now();
+        
+        localStorage.setItem("ss_shop_id", shopId);
+        localStorage.setItem("ss_shop_password", password);
+        localStorage.setItem("ss_shop_name", shopName);
+        localStorage.setItem("ss_is_logged_in", "true");
+        localStorage.setItem("ss_last_sync_time", this.lastSyncTime);
+
+        // Update UI
+        document.getElementById("dash-shop-name").textContent = `Welcome, ${shopName}!`;
+        document.getElementById("bottom-navigation-bar").style.display = "flex";
+        this.switchView("dashboard");
+        this.startSyncPolling();
+      } else {
+        alert("Registration failed: " + data.message);
+      }
+    } catch (err) {
+      this.hideLoading();
+      console.error(err);
+      alert("Error connecting to server. Make sure run_server.py is running!");
+    }
+  }
+
+  async handleLogin(e) {
+    e.preventDefault();
+    const shopId = document.getElementById("login-shop-id").value.trim().toLowerCase();
+    const password = document.getElementById("login-password").value;
+
+    if (!shopId || !password) {
+      alert("Please enter both Shop ID and Password.");
+      return;
+    }
+
+    this.showLoading("Logging in...");
+
+    try {
+      const response = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopId: shopId,
+          password: password
+        })
+      });
+
+      const data = await response.json();
+      this.hideLoading();
+
+      if (data.success) {
+        // Save auth data locally
+        this.shopId = shopId;
+        this.shopPassword = password;
+        this.shopName = data.shopName;
+        this.isLoggedIn = true;
+        
+        localStorage.setItem("ss_shop_id", shopId);
+        localStorage.setItem("ss_shop_password", password);
+        localStorage.setItem("ss_shop_name", data.shopName);
+        localStorage.setItem("ss_is_logged_in", "true");
+
+        // Force initial pull from server by setting local timestamp to 0
+        this.lastSyncTime = 0;
+        localStorage.setItem("ss_last_sync_time", "0");
+
+        // Update UI
+        document.getElementById("dash-shop-name").textContent = `Welcome, ${data.shopName}!`;
+        document.getElementById("bottom-navigation-bar").style.display = "flex";
+        
+        // Pull latest database content and switch views
+        await this.syncWithServer(false);
+        this.switchView("dashboard");
+        
+        // Start polling
+        this.startSyncPolling();
+      } else {
+        alert("Login failed: " + data.message);
+      }
+    } catch (err) {
+      this.hideLoading();
+      console.error(err);
+      alert("Error connecting to server. Make sure run_server.py is running!");
+    }
+  }
+
+  handleLogout() {
+    if (confirm("Are you sure you want to log out from this shop session?")) {
+      // Clear local states
+      this.shopId = "";
+      this.shopPassword = "";
+      this.shopName = "Shopkeeper";
+      this.isLoggedIn = false;
+      this.lastSyncTime = 0;
+      
+      localStorage.removeItem("ss_shop_id");
+      localStorage.removeItem("ss_shop_password");
+      localStorage.removeItem("ss_shop_name");
+      localStorage.removeItem("ss_is_logged_in");
+      localStorage.removeItem("ss_last_sync_time");
+
+      // Reset inventory and history to default values
+      this.inventory = [...DEFAULT_INVENTORY];
+      this.history = [];
+      localStorage.removeItem("ss_inventory");
+      localStorage.removeItem("ss_history");
+
+      // UI changes
+      document.getElementById("bottom-navigation-bar").style.display = "none";
+      this.stopSyncPolling();
+      
+      this.updateDashboardStats();
+      this.renderInventory();
+      this.renderHistoryList();
+      
+      this.switchView("auth");
+      alert("Successfully logged out.");
+    }
+  }
+
+  async syncWithServer(hasUpdates = false) {
+    if (!this.isLoggedIn) return;
+
+    const badge = document.getElementById("sync-status-badge");
+    const icon = document.getElementById("sync-spinner-icon");
+    const text = document.getElementById("sync-status-text");
+
+    if (badge && icon && text) {
+      badge.style.display = "flex";
+      icon.classList.add("spinning");
+      text.textContent = "Syncing...";
+    }
+
+    try {
+      const response = await fetch("/api/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopId: this.shopId,
+          password: this.shopPassword,
+          timestamp: this.lastSyncTime,
+          hasUpdates: hasUpdates || this.hasLocalChanges,
+          inventory: (hasUpdates || this.hasLocalChanges) ? this.inventory : null,
+          history: (hasUpdates || this.hasLocalChanges) ? this.history : null
+        })
+      });
+
+      if (response.status === 401) {
+        // Token expired / Password mismatch
+        this.stopSyncPolling();
+        alert("Session expired. Please log in again.");
+        this.handleLogout();
+        return;
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        if (data.status === "updated_client") {
+          // Server had newer data. Apply it!
+          this.inventory = data.inventory || [];
+          this.history = data.history || [];
+          this.lastSyncTime = data.timestamp;
+          this.hasLocalChanges = false;
+
+          localStorage.setItem("ss_inventory", JSON.stringify(this.inventory));
+          localStorage.setItem("ss_history", JSON.stringify(this.history));
+          localStorage.setItem("ss_last_sync_time", this.lastSyncTime);
+
+          // Re-render
+          this.updateDashboardStats();
+          this.renderInventory();
+          this.renderHistoryList();
+          
+          if (text) text.textContent = "Updated";
+        } else if (data.status === "updated_server") {
+          // Server saved our changes
+          this.lastSyncTime = data.timestamp;
+          this.hasLocalChanges = false;
+          localStorage.setItem("ss_last_sync_time", this.lastSyncTime);
+          
+          if (text) text.textContent = "Synced";
+        } else {
+          // Already in sync
+          if (text) text.textContent = "Synced";
+        }
+
+        // Remove spinning class and hide after a delay
+        setTimeout(() => {
+          if (icon) icon.classList.remove("spinning");
+          // Hide only if it's still showing "Synced" or "Updated"
+          if (text && (text.textContent === "Synced" || text.textContent === "Updated")) {
+            if (badge) badge.style.display = "none";
+          }
+        }, 1500);
+      }
+    } catch (err) {
+      console.warn("Sync failed: ", err);
+      if (text) text.textContent = "Offline";
+      if (icon) icon.classList.remove("spinning");
+    }
+  }
+
+  startSyncPolling() {
+    this.stopSyncPolling();
+    // Sync immediately
+    this.syncWithServer(false);
+    // Poll every 12 seconds
+    this.syncIntervalId = setInterval(() => {
+      this.syncWithServer(false);
+    }, 12000);
+  }
+
+  stopSyncPolling() {
+    if (this.syncIntervalId) {
+      clearInterval(this.syncIntervalId);
+      this.syncIntervalId = null;
     }
   }
 }

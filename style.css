@@ -1296,3 +1296,13 @@ input:checked + .slider:before {
   margin-top: 10px;
   max-width: 260px;
 }
+
+/* Sync Spinner Animation */
+@keyframes spin-clockwise {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.spinning {
+  animation: spin-clockwise 1.2s infinite linear;
+}
